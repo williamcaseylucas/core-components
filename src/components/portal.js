@@ -36,6 +36,7 @@ import goldao from '../assets/Metal_Gold_Foil_002_OCC.jpg'
 import CubeCameraWriter from "../utils/writeCubeMap.js";
 
 import { replaceMaterial as replaceWithShader} from './shader'
+import { Matrix4 } from "three";
 
 const worldPos = new THREE.Vector3()
 const worldCameraPos = new THREE.Vector3()
@@ -264,6 +265,8 @@ AFRAME.registerComponent('portal', {
         // A-Frame is supposed to do this by default but doesn't seem to?
         this.system = window.APP.scene.systems.portal 
 
+        this.updatePortal = this.updatePortal.bind(this)
+
         if (this.data.portalType.length > 0 ) {
             this.setPortalInfo(this.data.portalType, this.data.portalTarget, this.data.color)
         } else {
@@ -354,6 +357,19 @@ AFRAME.registerComponent('portal', {
         }
     },
 
+    updatePortal: async function () {
+        // no-op for portals that use pre-rendered cube maps
+        if (this.portalType == 2 || this.portalType == 3) { 
+            //this.el.sceneEl.addEventListener('model-loaded', () => {
+                showRegionForObject(this.el)
+                this.cubeCamera.update(this.el.sceneEl.renderer, this.el.sceneEl.object3D)
+                // this.cubeCamera.renderTarget.texture.generateMipmaps = true
+                // this.cubeCamera.renderTarget.texture.needsUpdate = true
+                hiderRegionForObject(this.el)
+            //}, once)
+        }
+    },
+
     setupPortal: async function () {
         // get rid of interactivity
         if (this.el.classList.contains("interactable")) {
@@ -421,28 +437,29 @@ AFRAME.registerComponent('portal', {
                     this.cubeMap = this.cubeCamera.renderTarget.texture
                 }
             }
-            //this.el.sceneEl.addEventListener('model-loaded', () => {
-                showRegionForObject(this.el)
-                this.cubeCamera.update(this.el.sceneEl.renderer, this.el.sceneEl.object3D)
-                // this.cubeCamera.renderTarget.texture.generateMipmaps = true
-                // this.cubeCamera.renderTarget.texture.needsUpdate = true
-                hiderRegionForObject(this.el)
-            //}, once)
+            this.updatePortal()
+            this.el.sceneEl.addEventListener('updatePortals', this.updatePortal)
+            this.el.sceneEl.addEventListener('model-loaded', this.updatePortal)
         }
 
+        let rot = new THREE.Quaternion()
+        let scaleW = new THREE.Vector3()
+        let pos = new THREE.Vector3()
+        this.el.object3D.matrixWorld.decompose(pos, rot, scaleW)
         let scaleM = this.el.object3DMap["mesh"].scale
-        let scaleI = this.el.object3D.scale
-        let scaleX = scaleM.x * scaleI.x
-        let scaleY = scaleM.y * scaleI.y
-        let scaleZ = scaleM.z * scaleI.z
+
+        // let scaleX = scaleM.x * scaleI.x
+        // let scaleY = scaleM.y * scaleI.y
+        // let scaleZ = scaleM.z * scaleI.z
 
         // this.portalWidth = scaleX / 2
         // this.portalHeight = scaleY / 2
 
         // offset to center of portal assuming walking on ground
         // this.Yoffset = -(this.el.object3D.position.y - 1.6)
-        this.Yoffset = -(scaleY/2 - 1.6)
-
+        this.Yoffset = -((scaleW.y * scaleM.y)/2 - 1.6)
+        
+        this.close()
         this.el.setAttribute('proximity-events', { radius: 4, Yoffset: this.Yoffset })
         this.el.addEventListener('proximityenter', () => this.open())
         this.el.addEventListener('proximityleave', () => this.close())
@@ -463,17 +480,23 @@ AFRAME.registerComponent('portal', {
 
             this.el.setObject3D('portalTitle', this.portalTitle.webLayer3D)
             let size = this.portalTitle.getSize()
-            let titleScaleX = scaleX / this.data.textScale
-            let titleScaleY = scaleY / this.data.textScale
-            let titleScaleZ = scaleZ / this.data.textScale
+            let titleScaleX = (scaleW.x) / this.data.textScale
+            let titleScaleY = (scaleW.y) / this.data.textScale
+            let titleScaleZ = (scaleW.z) / this.data.textScale
 
             this.portalTitle.webLayer3D.scale.x /= titleScaleX
             this.portalTitle.webLayer3D.scale.y /= titleScaleY
             this.portalTitle.webLayer3D.scale.z /= titleScaleZ
 
-            this.portalTitle.webLayer3D.position.x = this.data.textPosition.x / scaleX
-            this.portalTitle.webLayer3D.position.y = 0.5 + size.height / 2 + this.data.textPosition.y / scaleY
-            this.portalTitle.webLayer3D.position.z = this.data.textPosition.z / scaleY
+            this.portalTitle.webLayer3D.position.x = 
+                    this.data.textPosition.x / (scaleW.x)
+            this.portalTitle.webLayer3D.position.y = 
+                    (0.5 * scaleM.y) +
+                    (this.data.drawDoor ? 0.105 : 0) / (scaleW.y) +
+                    ((size.height * this.data.textScale) /2) / (scaleW.y) + 
+                    this.data.textPosition.y / (scaleW.y)
+            this.portalTitle.webLayer3D.position.z = 
+                    this.data.textPosition.z / (scaleW.z)
             // this.el.setObject3D('portalSubtitle', this.portalSubtitle.webLayer3D)
             // this.portalSubtitle.webLayer3D.position.x = 1
             this.portalTitle.webLayer3D.matrixAutoUpdate = true
@@ -487,11 +510,15 @@ AFRAME.registerComponent('portal', {
     },
 
     remove: function () {
-        this.el.removeObject3D("portalTitle")
+        this.el.sceneEl.removeEventListener('updatePortals', this.updatePortal)
+        this.el.sceneEl.removeEventListener('model-loaded', this.updatePortal)
 
-        this.portalTitle.destroy()
-        this.portalTitle = null
+        if (this.portalTitle) {
+            this.el.removeObject3D("portalTitle")
 
+            this.portalTitle.destroy()
+            this.portalTitle = null
+        }
         if (this.cubeMap) {
             this.cubeMap.dispose()
             this.cubeMap = null
@@ -554,11 +581,19 @@ AFRAME.registerComponent('portal', {
         // attached to an image in spoke.  This is the only way we allow buidling a 
         // door around it
         let scaleM = this.el.object3DMap["mesh"].scale
-        let scaleI = this.el.object3D.scale
-        var width = scaleM.x * scaleI.x
-        var height = scaleM.y * scaleI.y
-        var depth = 1.0; //  scaleM.z * scaleI.z
+        let rot = new THREE.Quaternion()
+        let scaleW = new THREE.Vector3()
+        let pos = new THREE.Vector3()
+        this.el.object3D.matrixWorld.decompose(pos, rot, scaleW)
 
+        var width = scaleW.x * scaleM.x
+        var height = scaleW.y * scaleM.y
+        var depth = scaleW.z * scaleM.z
+        
+        // let scaleI = this.el.object3D.scale
+        // var width = scaleM.x * scaleI.x
+        // var height = scaleM.y * scaleI.y
+        // var depth = 1.0; //  scaleM.z * scaleI.z
         const environmentMapComponent = this.el.sceneEl.components["environment-map"];
 
         // let above = new THREE.Mesh(
@@ -573,7 +608,7 @@ AFRAME.registerComponent('portal', {
 
         let left = new THREE.Mesh(
             // new THREE.BoxGeometry(0.1/width,2/height,0.1/depth,2,5,2),
-            new THREE.BoxGeometry(0.1/width,1,0.1/depth,2,5,2),
+            new THREE.BoxGeometry(0.1/width,1,0.099/depth,2,5,2),
             [doorMaterial,doorMaterial,doormaterialY, doormaterialY,doorMaterial,doorMaterial], 
         );
 
@@ -584,7 +619,7 @@ AFRAME.registerComponent('portal', {
         this.el.object3D.add(left)
 
         let right = new THREE.Mesh(
-            new THREE.BoxGeometry(0.1/width,1,0.1/depth,2,5,2),
+            new THREE.BoxGeometry(0.1/width,1,0.099/depth,2,5,2),
             [doorMaterial,doorMaterial,doormaterialY, doormaterialY,doorMaterial,doorMaterial], 
         );
 

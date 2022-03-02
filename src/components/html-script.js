@@ -6,6 +6,20 @@
  */
 import { findAncestorWithComponent } from "../utils/scene-graph";
 import {vueComponents as htmlComponents} from "https://resources.realitymedia.digital/vue-apps/dist/hubs.js";
+import spinnerImage from "../assets/Spinner-1s-200px.png"
+
+// load and setup all the bits of the textures for the door
+const loader = new THREE.TextureLoader()
+const spinnerGeometry = new THREE.PlaneGeometry( 1, 1 );
+const spinnerMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    alphaTest: 0.1
+})
+
+loader.load(spinnerImage, (color) => {
+    spinnerMaterial.map = color;
+    spinnerMaterial.needsUpdate = true
+})
 
 // var htmlComponents;
 // var scriptPromise;
@@ -66,6 +80,10 @@ AFRAME.registerComponent('html-script', {
             parameter4: this.data.parameter4
         }
 
+        this.loading = true;
+        this.spinnerPlane = new THREE.Mesh( spinnerGeometry, spinnerMaterial );
+        this.spinnerPlane.matrixAutoUpdate = true
+        this.spinnerPlane.position.z = 0.05
         if (!this.fullName || this.fullName.length == 0) {
             this.parseNodeName();
         } else {
@@ -182,6 +200,9 @@ AFRAME.registerComponent('html-script', {
                     const {width: wsize, height: hsize} = this.script.getSize()
                     var scale = Math.min(width / wsize, height / hsize)
                     this.simpleContainer.setAttribute("scale", { x: scale, y: scale, z: scale});
+
+                    const spinnerScale = Math.min(width,height) * 0.25
+                    this.spinnerPlane.scale.set(spinnerScale, spinnerScale, 1)
                 }
 
                 // there will be one element already, the cube we created in blender
@@ -198,6 +219,8 @@ AFRAME.registerComponent('html-script', {
                             
                 // add in our container
                 this.el.appendChild(this.simpleContainer)
+
+                this.el.setObject3D("spinner", this.spinnerPlane)
 
                 // TODO:  we are going to have to make sure this works if 
                 // the script is ON an interactable (like an image)
@@ -412,6 +435,9 @@ AFRAME.registerComponent('html-script', {
     tick: function (time) {
         if (!this.script) return
 
+        if (this.loading) {
+            this.spinnerPlane.rotation.z += 0.03
+        }
         if (this.script.isInteractive) {
             // more or less copied from "hoverable-visuals.js" in hubs
             const toggling = this.el.sceneEl.systems["hubs-systems"].cursorTogglingSystem;
@@ -519,11 +545,25 @@ AFRAME.registerComponent('html-script', {
             this.script = null
             return;
         }
-        this.script = initScript(this.scriptData)
+
+        try {
+            this.script = new initScript(this.scriptData);
+        } catch (e) {
+            console.error("error creating script for " + this.componentName, e);
+            this.script = null
+        }
         if (this.script){
             this.script.needsUpdate = true
             // this.script.webLayer3D.refresh(true)
             // this.script.webLayer3D.update(true)
+
+            this.script.readyPromise?.then(() => {
+                // when a script finishes getting ready, tell the 
+                // portals to update themselves
+                this.el.sceneEl.emit('updatePortals') 
+                this.loading = false;
+                this.el.removeObject3D("spinner")
+            })
         } else {
             console.warn("'html-script' component failed to initialize script for " + this.componentName);
         }
