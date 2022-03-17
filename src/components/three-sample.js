@@ -199,6 +199,10 @@ let child = {
         // object3D to point to the same Entity.  If you add an object3D to
         // the sub-tree of that object later, you must do this yourself. 
         this.box2.el = this.simpleContainer
+
+        // tell the portals to update their view
+        this.el.sceneEl.emit('updatePortals') 
+
     },
 
     // called from remove() in the template to remove any local resources when the component
@@ -239,7 +243,7 @@ let child = {
     // called to start the drag.  Will be called after clicked() if isDraggable is true
     dragStart: function (evt) {
         // set up the drag state
-        if (!this.handleInteraction.startDrag(evt)) {
+        if (!this.handleInteraction.startDrag(evt, this.clickIntersection.object)) {
             return
         }
 

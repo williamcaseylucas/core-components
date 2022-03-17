@@ -1,6 +1,5 @@
 {
     "comment": "https://github.com/aelatgt/Spoke/tree/feature/component-system/src/editor/nodes for nodes",
-
   "types": {
   },
   "components": {
@@ -149,6 +148,10 @@
             "url" : {
                 "type": "string",
                 "default": ""
+            },
+            "radius": {
+                "type": "float",
+                "default": 1
             }
         }
     },
@@ -164,6 +167,71 @@
                 "type": "float",
                 "default": 1
             }
+        }
+    },
+    "show-hide" : {
+        "category": "AEL",
+        "nodes": ["Group", "Model", "Image"],
+        "properties": {
+            "radius": { "type": "float", "default": 1 },
+            "showClose": { "type": "bool", "default": true }
+        }
+    },
+    
+    "force-graph": {
+        "category": "AEL",
+        "nodes": ["Group"],
+        "properties": {
+            "name": { 
+                "type": "string",
+                "default": "" 
+            },
+            "width": { 
+                "type": "float",
+                "default": 1.0
+            },
+            "height": { 
+                "type": "float",
+                "default": 1.0
+            },
+            "textSize": {
+                "type": "float",
+                "default": "2"
+            },
+    
+            "isNetworked": { 
+                "type": "bool",
+                "default": false
+            },
+            "isInteractive": { 
+                "type": "bool",
+                "default": false
+            },
+            "isDraggable": { 
+                "type": "bool",
+                "default": false
+            },
+            "vueApp" : {
+                "type": "string",
+                "default": "GraphLabel"
+            },
+            "jsonUrl": { "type": "string", "default": "" },
+            "chargeForce": { "type": "float", "default": 0 },
+            "xForce": { "type": "float", "default": 0 },
+            "yForce": { "type": "float", "default": 0 },
+            "zForce": { "type": "float", "default": 0 },
+            "nodeId": { "type": "string", "default": "id" },
+            "nodeVal": { "type": "string", "default": "val" },
+            "nodeColor": { "type": "string", "default": "color" },
+            "nodeAutoColorBy": { "type": "string", "default": "" },
+            "nodeOpacity": { "type": "float", "default": 0.75 },
+            "linkSource": { "type": "string", "default": "source" },
+            "linkTarget": { "type": "string", "default": "target" },
+            "linkVisibility": { "type": "bool", "default": true },
+            "linkColor": { "type": "string", "default": "color" },
+            "linkAutoColorBy": { "type": "string", "default": "" },
+            "linkOpacity": { "type": "float", "default": 0.2 },
+            "linkWidth": { "type": "int", "default": 0 }
         }
     }
   }

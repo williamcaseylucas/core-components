@@ -6,6 +6,20 @@
  */
 import { findAncestorWithComponent } from "../utils/scene-graph";
 import {vueComponents as htmlComponents} from "https://resources.realitymedia.digital/vue-apps/dist/hubs.js";
+import spinnerImage from "../assets/Spinner-1s-200px.png"
+
+// load and setup all the bits of the textures for the door
+const loader = new THREE.TextureLoader()
+const spinnerGeometry = new THREE.PlaneGeometry( 1, 1 );
+const spinnerMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    alphaTest: 0.1
+})
+
+loader.load(spinnerImage, (color) => {
+    spinnerMaterial.map = color;
+    spinnerMaterial.needsUpdate = true
+})
 
 // var htmlComponents;
 // var scriptPromise;
@@ -66,6 +80,10 @@ AFRAME.registerComponent('html-script', {
             parameter4: this.data.parameter4
         }
 
+        this.loading = true;
+        this.spinnerPlane = new THREE.Mesh( spinnerGeometry, spinnerMaterial );
+        this.spinnerPlane.matrixAutoUpdate = true
+        this.spinnerPlane.position.z = 0.05
         if (!this.fullName || this.fullName.length == 0) {
             this.parseNodeName();
         } else {
@@ -178,10 +196,17 @@ AFRAME.registerComponent('html-script', {
                     parent2.matrixNeedsUpdate = true;
                 }
 
+                this.actualWidth = width
+                this.actualHeight = height
+
                 if (width > 0 && height > 0) {
                     const {width: wsize, height: hsize} = this.script.getSize()
-                    var scale = Math.min(width / wsize, height / hsize)
-                    this.simpleContainer.setAttribute("scale", { x: scale, y: scale, z: scale});
+                    if (wsize > 0 && hsize > 0) {
+                        var scale = Math.min(width / wsize, height / hsize)
+                        this.simpleContainer.setAttribute("scale", { x: scale, y: scale, z: scale});
+                    }
+                    const spinnerScale = Math.min(width,height) * 0.25
+                    this.spinnerPlane.scale.set(spinnerScale, spinnerScale, 1)
                 }
 
                 // there will be one element already, the cube we created in blender
@@ -198,6 +223,8 @@ AFRAME.registerComponent('html-script', {
                             
                 // add in our container
                 this.el.appendChild(this.simpleContainer)
+
+                this.el.setObject3D("spinner", this.spinnerPlane)
 
                 // TODO:  we are going to have to make sure this works if 
                 // the script is ON an interactable (like an image)
@@ -412,67 +439,71 @@ AFRAME.registerComponent('html-script', {
     tick: function (time) {
         if (!this.script) return
 
-        if (this.script.isInteractive) {
-            // more or less copied from "hoverable-visuals.js" in hubs
-            const toggling = this.el.sceneEl.systems["hubs-systems"].cursorTogglingSystem;
-            var passthruInteractor = []
+        if (this.loading) {
+            this.spinnerPlane.rotation.z += 0.03
+        } else {
+            if (this.script.isInteractive) {
+                // more or less copied from "hoverable-visuals.js" in hubs
+                const toggling = this.el.sceneEl.systems["hubs-systems"].cursorTogglingSystem;
+                var passthruInteractor = []
 
-            let interactorOne, interactorTwo;
-            const interaction = this.el.sceneEl.systems.interaction;
-            if (!interaction.ready) return; //DOMContentReady workaround
-            
-            let hoverEl = this.simpleContainer
-            if (interaction.state.leftHand.hovered === hoverEl && !interaction.state.leftHand.held) {
-              interactorOne = interaction.options.leftHand.entity.object3D;
-            }
-            if (
-              interaction.state.leftRemote.hovered === hoverEl &&
-              !interaction.state.leftRemote.held &&
-              !toggling.leftToggledOff
-            ) {
-              interactorOne = interaction.options.leftRemote.entity.object3D;
-            }
-            if (interactorOne) {
-                let pos = interactorOne.position
-                let dir = this.script.webLayer3D.getWorldDirection(new THREE.Vector3()).negate()
-                pos.addScaledVector(dir, -0.1)
-                this.hoverRayL.set(pos, dir)
+                let interactorOne, interactorTwo;
+                const interaction = this.el.sceneEl.systems.interaction;
+                if (!interaction.ready) return; //DOMContentReady workaround
+                
+                let hoverEl = this.simpleContainer
+                if (interaction.state.leftHand.hovered === hoverEl && !interaction.state.leftHand.held) {
+                interactorOne = interaction.options.leftHand.entity.object3D;
+                }
+                if (
+                interaction.state.leftRemote.hovered === hoverEl &&
+                !interaction.state.leftRemote.held &&
+                !toggling.leftToggledOff
+                ) {
+                interactorOne = interaction.options.leftRemote.entity.object3D;
+                }
+                if (interactorOne) {
+                    let pos = interactorOne.position
+                    let dir = this.script.webLayer3D.getWorldDirection(new THREE.Vector3()).negate()
+                    pos.addScaledVector(dir, -0.1)
+                    this.hoverRayL.set(pos, dir)
 
-                passthruInteractor.push(this.hoverRayL)
-            }
-            if (
-              interaction.state.rightRemote.hovered === hoverEl &&
-              !interaction.state.rightRemote.held &&
-              !toggling.rightToggledOff
-            ) {
-              interactorTwo = interaction.options.rightRemote.entity.object3D;
-            }
-            if (interaction.state.rightHand.hovered === hoverEl && !interaction.state.rightHand.held) {
-                interactorTwo = interaction.options.rightHand.entity.object3D;
-            }
-            if (interactorTwo) {
-                let pos = interactorTwo.position
-                let dir = this.script.webLayer3D.getWorldDirection(new THREE.Vector3()).negate()
-                pos.addScaledVector(dir, -0.1)
-                this.hoverRayR.set(pos, dir)
-                passthruInteractor.push(this.hoverRayR)
+                    passthruInteractor.push(this.hoverRayL)
+                }
+                if (
+                interaction.state.rightRemote.hovered === hoverEl &&
+                !interaction.state.rightRemote.held &&
+                !toggling.rightToggledOff
+                ) {
+                interactorTwo = interaction.options.rightRemote.entity.object3D;
+                }
+                if (interaction.state.rightHand.hovered === hoverEl && !interaction.state.rightHand.held) {
+                    interactorTwo = interaction.options.rightHand.entity.object3D;
+                }
+                if (interactorTwo) {
+                    let pos = interactorTwo.position
+                    let dir = this.script.webLayer3D.getWorldDirection(new THREE.Vector3()).negate()
+                    pos.addScaledVector(dir, -0.1)
+                    this.hoverRayR.set(pos, dir)
+                    passthruInteractor.push(this.hoverRayR)
+                }
+
+                this.script.webLayer3D.interactionRays = passthruInteractor
             }
 
-            this.script.webLayer3D.interactionRays = passthruInteractor
+            if (this.script.isNetworked) {
+                // if we haven't finished setting up the networked entity don't do anything.
+                if (!this.netEntity || !this.stateSync) { return }
+
+                // if the state has changed in the networked data, update our html object
+                if (this.stateSync.changed) {
+                    this.stateSync.changed = false
+                    this.script.updateSharedData(this.stateSync.dataObject)
+                }
+            }
+
+            this.script.tick(time)
         }
-
-        if (this.script.isNetworked) {
-            // if we haven't finished setting up the networked entity don't do anything.
-            if (!this.netEntity || !this.stateSync) { return }
-
-            // if the state has changed in the networked data, update our html object
-            if (this.stateSync.changed) {
-                this.stateSync.changed = false
-                this.script.updateSharedData(this.stateSync.dataObject)
-            }
-        }
-
-        this.script.tick(time)
     },
   
     // TODO:  should only be called if there is no parameter specifying the
@@ -519,12 +550,32 @@ AFRAME.registerComponent('html-script', {
             this.script = null
             return;
         }
-        this.script = initScript(this.scriptData)
+
+        try {
+            this.script = initScript(this.scriptData);
+        } catch (e) {
+            console.error("error creating script for " + this.componentName, e);
+            this.script = null
+        }
         if (this.script){
             this.script.needsUpdate = true
             // this.script.webLayer3D.refresh(true)
             // this.script.webLayer3D.update(true)
-        } else {
+
+            this.script.waitForReady().then(() => {
+                const {width: wsize, height: hsize} = this.script.getSize()
+                if (wsize > 0 && hsize > 0) {
+                    var scale = Math.min(this.actualWidth / wsize, this.actualHeight / hsize)
+                    this.simpleContainer.setAttribute("scale", { x: scale, y: scale, z: scale});
+                }
+
+                // when a script finishes getting ready, tell the 
+                // portals to update themselves
+                this.el.sceneEl.emit('updatePortals'); 
+                this.loading = false;
+                this.el.removeObject3D("spinner");
+            })
+		} else {
             console.warn("'html-script' component failed to initialize script for " + this.componentName);
         }
     },
