@@ -26,6 +26,7 @@ import { showRegionForObject, hiderRegionForObject } from './region-hider.js'
 import { findAncestorWithComponent } from '../utils/scene-graph'
 import { updateWithShader } from './shader'
 import { WarpPortalShader } from '../shaders/warp-portal.js'
+import { downloadBlob  } from "../utils/utils";
 
 import goldcolor from '../assets/Metal_Gold_Foil_002_COLOR.jpg'
 import goldDisplacement from '../assets/Metal_Gold_Foil_002_DISP.jpg'
@@ -155,6 +156,24 @@ loader.load(goldnorm, (norm) => {
 //     }
 // }
   
+const waitForEvent = function(eventName, eventObj) {
+    return new Promise(resolve => {
+      eventObj.addEventListener(eventName, resolve, { once: true });
+    });
+  };
+  
+const waitForDOMContentLoaded = function() {
+    if (document.readyState === "complete" || document.readyState === "loaded" || document.readyState === "interactive") {
+        return Promise.resolve(null);
+    } else {
+        return waitForEvent("DOMContentLoaded", window);
+    }
+};
+  
+  
+
+//  scene.emit("hub_updated", { hub });
+
 const once = {
     once : true
 };
@@ -165,42 +184,148 @@ AFRAME.registerSystem('portal', {
     this.teleporting = false
     this.characterController = this.el.systems['hubs-systems'].characterController
     this.fader = this.el.systems['fader-plus']
-    // this.roomData = null
-    this.waitForFetch = this.waitForFetch.bind(this)
+    this.roomData = null;
+    this.cacheLoaded = false;
 
-    // if the user is logged in, we want to retrieve their userData from the top level server
-    // if (window.APP.store.state.credentials && window.APP.store.state.credentials.token && !window.APP.userData) {
-    //     this.fetchRoomData()
-    // }
+    waitForDOMContentLoaded().then(() => {
+        setTimeout(() => {
+            // want to let other domcontentloaded events to finish
+            // before we run, so SSO is set up (if it will be)
+            this.fetchRoomData()
+        },1);
+    });
   },
-//   fetchRoomData: async function () {
-//     var params = {token: window.APP.store.state.credentials.token,
-//                   room_id: window.APP.hubChannel.hubId}
 
-//     const options = {};
-//     options.headers = new Headers();
-//     options.headers.set("Authorization", `Bearer ${params}`);
-//     options.headers.set("Content-Type", "application/json");
-//     await fetch("https://realitymedia.digital/userData", options)
-//         .then(response => response.json())
-//         .then(data => {
-//           console.log('Success:', data);
-//           this.roomData = data;
-//     })
-//     this.roomData.textures = []
-//   },
+  fetchRoomData: async function () {  
+    this.loadLayerCache()
+
+    // if we are running on realitymedia.digital, this will be set.  IF we are not,
+    // it won't be set, so just back out
+    if (!window.SSO) {
+        this.roomData = {
+            roomId: -1,
+            localRooms: []
+        }
+        return
+    }
+
+    await this.waitForFetch()
+    let hubId = window.APP.hubChannel.hubId;
+    let found = false;
+    found = window.SSO.userInfo.rooms.find((el, index) => {
+        if (el == hubId) {
+            this.roomData = {
+                roomId: index,
+                localRooms: []
+            }
+            return;
+        } 
+    })
+
+    if (!found) {
+        const options = {};
+        options.headers = new Headers();
+        //options.headers.set("Authorization", `Bearer ${params}`);
+        options.headers.set("Content-Type", "application/json");
+        options.credentials = "include", // use cookie
+        await fetch("https://realitymedia.digital/sso/userRooms/?email=" + 
+            encodeURIComponent(window.APP.store.state.credentials.email) + "&token=" + 
+            encodeURIComponent(window.APP.store.state.credentials.token) + "&hubId=" +
+            encodeURIComponent(hubId), options)
+            .then(response => response.json())
+            .then(data => {
+                console.log('Fetch Room Data Success:', data);
+                this.roomData = data;
+        })
+    }
+  },
+
+  loadLayerCache: async function () {
+    let roomUri = await this.getCacheURI();
+    let url = "https://resources.realitymedia.digital/data/roomCache/" + roomUri;
+    const loadCache = htmlComponents["loadCache"];
+    // await loadCache(url);
+    this.cacheLoaded = true
+  },
+
+  waitForCache: function () {
+    return new Promise((resolve) => {
+       let waitForIt = () => {
+           if (this.cacheLoaded) {
+               resolve(true);
+               return;
+           }
+           setTimeout(waitForIt, 10); // try again in 100 milliseconds            
+        }
+        waitForIt()
+    })
+  },
+
+  waitForFetch: function () {
+    return new Promise((resolve) => {
+       let waitForIt = () => {
+           if (window.SSO && window.SSO.userInfo) {
+               resolve(true);
+               return;
+           }
+           setTimeout(waitForIt, 10); // try again in 100 milliseconds            
+        }
+        waitForIt()
+    })
+  },
+
+  waitForRoomId: function () {
+    return new Promise((resolve) => {
+       let waitForIt = () => {
+           if (this.roomData) {
+               resolve(true);
+               return;
+           }
+           setTimeout(waitForIt, 10); // try again in 100 milliseconds            
+        }
+        waitForIt()
+    })
+  },
+
+  getCacheURI: async function() {
+    await this.waitForRoomId()
+    
+    let roomId = this.roomData.roomId
+
+    let room = roomId.toString();
+    if (roomId < 0) {
+        room = window.APP.hubChannel.hubId;
+    }
+    return room + '.cache';
+  },
+
   getRoomURL: async function (number) {
-      let hub_id = await this.getRoomHubId(number)
+    let hub_id = await this.getRoomHubId(number)
 
-      let url = window.SSO.userInfo.rooms.length > number ? "https://xr.realitymedia.digital/" + hub_id : null;
-      return url
+    if (number >= 0 && window.SSO.userInfo.rooms.length > number) {
+          return "https://xr.realitymedia.digital/" + hub_id
+       } else {
+          return null;
+       }
   },
   getRoomHubId: async function (number) {
-    this.waitForFetch()
-    return window.SSO.userInfo.rooms[number]
+    // need both the login info which has the local room list
+    // and the room list fetched from the server
+    await this.waitForFetch();
+    await this.waitForRoomId();
+
+    if (number >= 0 && window.SSO.userInfo.rooms.length > number) {
+        if (this.roomData.roomId > 0 && this.roomData.localRooms.length > number) {
+            return this.roomData.localRooms[number];
+        } else {
+            return window.SSO.userInfo.rooms[number];
+        }
+    } else {
+        return ""
+    }
   },
   getCubeMap: async function (number, waypoint) {
-      this.waitForFetch()
+      await this.waitForFetch()
 
       if (!waypoint || waypoint.length == 0) {
           waypoint = "start"
@@ -221,10 +346,18 @@ AFRAME.registerSystem('portal', {
     return urls
     //return this.roomData.cubemaps.length > number ? this.roomData.cubemaps[number] : null;
   },
-  waitForFetch: function () {
-     if (window.SSO.userInfo) return
-     setTimeout(this.waitForFetch, 100); // try again in 100 milliseconds
+
+  goToURL: async function (url) {
+    // first fade out
+    await this.fader.fadeOut();
+ 
+    // then hide completely
+    const canvas = document.querySelector(".a-canvas");
+    canvas.classList.add("a-hidden");
+
+    window.location.href = url;
   },
+
   teleportTo: async function (object) {
     this.teleporting = true
     await this.fader.fadeOut()
@@ -241,6 +374,15 @@ AFRAME.registerSystem('portal', {
     this.teleporting = false
   },
 })
+
+window.APP.saveLayerCache = async function () {
+    let system = window.APP.scene.systems.portal;
+    let roomUri = await system.getCacheURI();
+
+    const exportCache = htmlComponents["exportCache"];
+    let blob = await exportCache();
+    downloadBlob(blob, roomUri);
+}
 
 AFRAME.registerComponent('portal', {
     schema: {
@@ -340,7 +482,7 @@ AFRAME.registerComponent('portal', {
                     if (this.data.drawDoor) {
                         this.setupDoor();
                     }
-                    this.el.removeEventListener('model-loaded', fn)
+                    this.el.removeEventListener('media-loaded', fn)
                  }
                 this.el.addEventListener("media-loaded", fn)
             } else {
@@ -440,6 +582,7 @@ AFRAME.registerComponent('portal', {
             this.updatePortal()
             this.el.sceneEl.addEventListener('updatePortals', this.updatePortal)
             this.el.sceneEl.addEventListener('model-loaded', this.updatePortal)
+            this.el.sceneEl.addEventListener('media-loaded', this.updatePortal)
         }
 
         let rot = new THREE.Quaternion()
@@ -472,6 +615,10 @@ AFRAME.registerComponent('portal', {
                 height: this.data.textSize.y,
                 message: this.data.text
             }
+
+            // don't want to proceed until the cache is loaded
+            //await this.system.waitForCache();
+
             const portalTitle = htmlComponents["PortalTitle"]
             // const portalSubtitle = htmlComponents["PortalSubtitle"]
 
@@ -515,6 +662,7 @@ AFRAME.registerComponent('portal', {
     remove: function () {
         this.el.sceneEl.removeEventListener('updatePortals', this.updatePortal)
         this.el.sceneEl.removeEventListener('model-loaded', this.updatePortal)
+        this.el.sceneEl.removeEventListener('media-loaded', this.updatePortal)
 
         if (this.portalTitle) {
             this.el.removeObject3D("portalTitle")
@@ -650,6 +798,10 @@ AFRAME.registerComponent('portal', {
         // }
     },
 
+    // hideRoom: function() {
+    //     const canvas = document.querySelector(".a-canvas");
+    //     canvas.classList.add("a-hidden");
+    // },      
     tick: function (time) {
         //this.material.uniforms.time.value = time / 1000
         if (!this.materials) { return }
@@ -682,10 +834,12 @@ AFRAME.registerComponent('portal', {
           // window.APP.utils.changeToHub
           if ((this.portalType == 1 || this.portalType == 4) && dist < 0.25) {
               if (!this.locationhref) {
-                this.locationhref = this.other
+                this.locationhref = this.other;
                 if (!APP.store.state.preferences.fastRoomSwitching) {
-                    console.log("set window.location.href to " + this.other)
-                    window.location.href = this.other
+                    console.log("set window.location.href to " + this.other);
+                    //this.hideRoom();
+                    //window.location.href = this.other;
+                    this.system.goToURL(this.other);
                 } else {
                     let wayPoint = this.data.secondaryTarget
                     const environmentScene = document.querySelector("#environment-scene");
@@ -703,20 +857,20 @@ AFRAME.registerComponent('portal', {
                         window.changeHub(this.hub_id).then(() => {
                             // environmentScene.addEventListener("model-loaded", () => {
                             //     console.log("Environment scene has loaded");
-                                goToWayPoint()
+                                goToWayPoint();
                             // })
                         })
                     }
                 }
             }
           } else if (this.portalType == 2 && dist < 0.25) {
-            this.system.teleportTo(this.other.object3D)
+            this.system.teleportTo(this.other.object3D);
           } else if (this.portalType == 3) {
               if (dist < 0.25) {
                 if (!this.locationhref) {
                   console.log("set window.location.hash to " + this.other)
-                  this.locationhref = this.other
-                  window.location.hash = this.other
+                  this.locationhref = this.other;
+                  window.location.hash = this.other;
                 }
               } else {
                   // if we set locationhref, we teleported.  when it
@@ -740,6 +894,11 @@ AFRAME.registerComponent('portal', {
                 
                         // the target is another room, resolve with the URL to the room
                         this.system.getRoomURL(this.portalTarget).then(url => { 
+                            if (!url) {
+                                resolve(null)
+                                return
+                            }
+
                             if (this.data.secondaryTarget && this.data.secondaryTarget.length > 0) {
                                 resolve(url + "#" + this.data.secondaryTarget)
                             } else {
