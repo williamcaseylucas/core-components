@@ -33,7 +33,9 @@ import ThreeForceGraph from "three-forcegraph";
 import {
     forceX as d3ForceX,
     forceY as d3ForceY,
-    forceZ as d3ForceZ
+    forceZ as d3ForceZ,
+    forceLink as d3ForceLink,
+    forceManyBody as d3ForceManyBody
 } from 'd3-force-3d';
 
 import {vueComponents as htmlComponents} from "https://resources.realitymedia.digital/vue-apps/dist/hubs.js";
@@ -213,6 +215,7 @@ let child = {
         }
 
         this.forceGraph.matrixAutoUpdate = true;
+        this.useLevels = false;
 
         this.forceGraph
           .d3AlphaDecay(0.05)
@@ -254,16 +257,82 @@ let child = {
                     }
                 });
 
-                //this.forceGraph.d3Force('charge').strength(-200);
-                // while (initialRun) {
-                //     this.forceGraph.tickFrame();
-                // }
-            })
+                let graph = this.forceGraph.graphData();
+                for (let i = 0; i < graph.nodes.length; i++) {
+                    if (graph.nodes[i].level) {
+                        this.useLevels = true;
+                        break;
+                    }
+                }
+                
+                if (this.useLevels) {
+                    for (let i = 0; i < graph.nodes.length; i++) {
+                        let levels = [0, 0, 100, 200];
 
-        // want to use these forces
-        this.forceGraph.d3Force('x', d3ForceX());
-        this.forceGraph.d3Force('y', d3ForceY());
-        this.forceGraph.d3Force('z', d3ForceZ());
+                        if (graph.nodes[i].level) {
+                            let node = graph.nodes[i];
+
+                            let scale = node[this.data.nodeVal] ? node[this.data.nodeVal] : 1;
+                            let level = node.level ? levels[node.level] : 0;
+    
+                            if (level == levels[1]) {
+                                level = level * 1 + Math.random() * 30;
+                            }
+                            node.yTarget =  this.data.nodeRelSize * level * scale;                        
+                        }
+                    }
+    
+                    //this.forceGraph.d3Force('charge').strength(-200);
+                    // while (initialRun) {
+                    //     this.forceGraph.tickFrame();
+                    // }
+
+                    // want to use these forces
+                    // this.forceGraph.d3Force('x', d3ForceX());
+                    // if (this.data.xForce !== 0) {
+                    //     this.forceGraph.d3Force('x').strength(this.data.xForce);
+                    // }
+
+                    this.forceGraph.d3Force('y', d3ForceY()
+                        .y(node => {
+                            return node.yTarget;
+                        })
+                        // .strength(1)
+
+                        //     //let dependedOn = this._nodeDependedOn(node);
+    
+                        //     // if (!dependedOn || node.dependsOn.length < 1) {
+                        //     return 1;
+                        //     // }
+    
+                        //     // not a top or bottom
+                        //     // return 0;
+                        // })
+                    );
+                        // if (this.data.yForce !== 0) {
+                    //     this.forceGraph.d3Force('y').strength(this.data.yForce);
+                    // }
+
+                    // this.forceGraph.d3Force('z', d3ForceZ());
+                    // if (this.data.zForce !== 0) {
+                    //     this.forceGraph.d3Force('z').strength(this.data.zForce);
+                    // }
+
+                    this.forceGraph.d3Force("link", d3ForceLink(graph.links)
+                    .strength(link => {
+                        let level = Math.max(link.source.level, link.target.level);
+                        return 1/level;
+                    })
+                    .distance(link => {
+                        let level = Math.max(link.source.level, link.target.level);
+
+                        return 40 * level;
+                    })
+                    //.iterations(10)
+                )
+            }
+        })
+
 
         // override the defaults in the template
         this.isInteractive = this.data.isInteractive;
@@ -386,9 +455,11 @@ let child = {
             size: this.data.textSize
         }
 
-        ret.scale.x = scale * this.data.nodeRelSize;
-        ret.scale.y = scale * this.data.nodeRelSize;
-        ret.scale.z = scale * this.data.nodeRelSize;
+        let nodeSize = node[this.data.nodeVal] ? node[this.data.nodeVal]: 1;
+
+        ret.scale.x = scale * this.data.nodeRelSize * nodeSize;
+        ret.scale.y = scale * this.data.nodeRelSize * nodeSize;
+        ret.scale.z = scale * this.data.nodeRelSize * nodeSize;
         ret.updateMatrix();
 
         // don't want to proceed until the cache is loaded
@@ -446,17 +517,7 @@ let child = {
         this.forceGraph.nodeThreeObject(this.makeHTMLText);
 
         if (this.data.chargeForce != 0) {
-            this.forceGraph.d3Force('charge').strength(this.data.chargeForce);
-        }
-
-        if (this.data.xForce !== 0) {
-            this.forceGraph.d3Force('x').strength(this.data.xForce);
-        }
-        if (this.data.yForce !== 0) {
-            this.forceGraph.d3Force('y').strength(this.data.yForce);
-        }
-        if (this.data.zForce !== 0) {
-            this.forceGraph.d3Force('z').strength(this.data.zForce);
+            this.forceGraph.d3Force('charge', d3ForceManyBody());//.strength(-0.01*this.data.chargeForce));
         }
     },
 
@@ -579,6 +640,7 @@ let child = {
         this.handleInteraction.endDrag(evt)
 
         let node = this.clickNode;
+        // node.yTarget = node.y;
 
         const initFixedPos = this.initialFixedPos;
         const initPos = this.initialPos;
@@ -586,7 +648,9 @@ let child = {
           ['x', 'y', 'z'].forEach(c => {
             const fc = `f${c}`;
             if (initFixedPos[fc] === undefined) {
-              delete(node[fc]);
+                delete(node[fc]);
+            // } else {
+            //     node[fc] = initFixedPos[fc];
             }
           });
           delete(this.initialFixedPos);
@@ -596,6 +660,7 @@ let child = {
         }
         this.sendSharedNode(this.clickNode);
 
+        // this.forceGraph.d3Force('y').initialize(this.forceGraph.graphData().nodes)
         this.forceGraph
           .d3AlphaTarget(0)   // release engine low intensity
           .resetCountdown();  // let the engine readjust after releasing fixed nodes
@@ -745,6 +810,11 @@ let child = {
     nodeQuaternion: new THREE.Quaternion(),
     _m1: new THREE.Matrix4(),
 
+    mat: new THREE.Matrix4(),
+    eye: new THREE.Vector3(),
+    center: new THREE.Vector3(),
+    up: new THREE.Vector3(0, 1, 0),
+
     decayCount: 0,
     tick: function (time) {
         const state = this.state;
@@ -859,6 +929,11 @@ let child = {
         // which will cause the graph to swim when the head moves
         this.el.sceneEl.camera.updateMatrices();
         this.el.sceneEl.camera.getWorldQuaternion(this.cameraQuaternion);
+
+        // this.el.sceneEl.camera.getWorldPosition(this.eye);
+        // this.forceGraph.getWorldPosition(this.center);
+        // this.mat.lookAt(this.eye, this.center, this.up);
+        // this.cameraQuaternion.setFromRotationMatrix(this.mat);
 
         this.forceGraph.getWorldQuaternion(this.nodeQuaternion).invert().multiply(this.cameraQuaternion);
 
